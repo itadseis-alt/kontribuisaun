@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="tet">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2f4a2b">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Kontribuisaun">
+<title>Kontribuisaun F-FDTL</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="emblema">FDTL</div>
+  <div class="tit"><b>Kontribuisaun</b><small id="topSub">Lia Mate · Kazamento · Dezastre · Seluk</small></div>
+  <button id="btnInstall" class="btn-inst" hidden>Instala</button>
+</header>
+
+<main>
+  <!-- ======================= DASHBOARD -->
+  <section id="v-dash" class="view">
+    <details class="filtru" id="filtruBox">
+      <summary>Filtru <span id="filtruResumu" class="mini"></span></summary>
+      <div class="g2">
+        <label>Tipu<select id="fTipu"></select></label>
+        <label>Ba se?<select id="fBaSe"></select></label>
+        <label>Pelotaun<select id="fPel"></select></label>
+        <label>Postu<select id="fPostu"></select></label>
+        <label>Data hosi<input type="date" id="fHosi"></label>
+        <label>Data too<input type="date" id="fToo"></label>
+      </div>
+      <button class="btn btn-s w100" id="fLimpa" type="button">Limpa filtru</button>
+    </details>
+
+    <div class="kpi-main"><span>TOTAL KONTRIBUISAUN JERÁL</span><b id="kTotal">$ 0.00</b><small id="kRej">0 rejistu</small></div>
+    <div class="kpis">
+      <div class="kpi"><span>Membru</span><b id="kEma">0</b></div>
+      <div class="kpi"><span>Média / membru</span><b id="kMedia">$ 0</b></div>
+      <div class="kpi"><span>Ba se</span><b id="kBaSe">0</b></div>
+    </div>
+
+    <div class="card"><h2>Tuir Tipu</h2><div id="dTipu"></div></div>
+    <div class="card"><h2>Tuir Benefisiáriu (Ba se?)</h2><div id="dBaSe"></div></div>
+    <div class="card"><h2>Tuir Pelotaun</h2><div id="dPel"></div></div>
+    <div class="card"><h2>Top 10 Membru</h2><div id="dTop"></div></div>
+    <div class="card"><h2>Tuir Postu</h2><div id="dPostu"></div></div>
+    <div class="card">
+      <h2>Total Kada Membru <small id="dEmaN"></small></h2>
+      <input type="search" id="emaBuka" placeholder="Buka naran...">
+      <div id="dEma"></div>
+    </div>
+  </section>
+
+  <!-- ======================= FORMULÁRIU -->
+  <section id="v-form" class="view" hidden>
+    <form id="form" class="card" autocomplete="off" novalidate>
+      <h2 id="formTit">Rejistu Kontribuisaun Foun</h2>
+      <label>Data <span class="req">*</span><input type="date" id="iData" required></label>
+      <label>1. Naran Kompletu <span class="req">*</span>
+        <input id="iNaran" list="lNaran" required placeholder="Ex.: Isac Mendes" autocapitalize="words"></label>
+      <datalist id="lNaran"></datalist>
+      <div class="g2">
+        <label>2. Postu <span class="req">*</span><select id="iPostu" required></select></label>
+        <label>3. Pelotaun <span class="req">*</span><select id="iPel" required></select></label>
+      </div>
+      <label>4. Tipu Kontribuisaun <span class="req">*</span><select id="iTipu" required></select></label>
+      <label>5. Ba se? <span class="req">*</span>
+        <input id="iBaSe" list="lBaSe" required placeholder="Ex.: Alf. Lima" autocapitalize="words"></label>
+      <datalist id="lBaSe"></datalist>
+      <label>6. Kuantidade (USD) <span class="req">*</span>
+        <div class="usd"><span>$</span><input id="iKuant" type="number" inputmode="decimal" step="0.01" min="0.01" required placeholder="0.00"></div></label>
+      <label>7. Obs<textarea id="iObs" rows="2" placeholder="Opsionál"></textarea></label>
+      <div id="formErru" class="erru" hidden></div>
+      <button class="btn btn-p w100 big" type="submit">8. Save</button>
+      <button class="btn btn-s w100" type="button" id="btnKansela" hidden>Kansela edisaun</button>
+      <p class="mini cen">Depois Save, Data, Tipu, Ba se, Postu no Pelotaun mantein — fasil atu rejista ema seluk.</p>
+    </form>
+    <div class="card"><h2>Rejistu ikus</h2><div id="formIkus"></div></div>
+  </section>
+
+  <!-- ======================= LISTA -->
+  <section id="v-lista" class="view" hidden>
+    <div class="card">
+      <div class="g2">
+        <input type="search" id="lBuka" placeholder="Buka naran / ba se...">
+        <select id="lTipu"></select>
+      </div>
+      <p class="mini" id="lResumu"></p>
+    </div>
+    <div id="lItens"></div>
+    <button class="btn btn-s w100" id="lMais" hidden>Haree tan</button>
+  </section>
+
+  <!-- ======================= RELATÓRIU -->
+  <section id="v-rel" class="view" hidden>
+    <div class="card">
+      <h2>Relatóriu</h2>
+      <p class="mini">Relatóriu uza filtru husi Dashboard: <b id="rFiltru"></b></p>
+      <p class="mini" id="rResumu"></p>
+      <h3>Excel (.xlsx)</h3>
+      <p class="mini">Folha: Sumariu, Total Kada Ema, Matriz Ema x Ba se, Detalhu Rejistu.</p>
+      <div class="g2"><button class="btn btn-p" id="rXlsxDl">⬇ Download</button><button class="btn btn-s" id="rXlsxSh">↗ Fahe</button></div>
+      <h3>HTML (imprime / PDF)</h3>
+      <div class="g2"><button class="btn btn-p" id="rHtmlDl">⬇ Download</button><button class="btn btn-s" id="rHtmlSh">↗ Fahe</button></div>
+      <button class="btn btn-s w100" id="rHaree">👁 Haree relatóriu iha ne'e</button>
+    </div>
+  </section>
+
+  <!-- ======================= DADUS / KONFIGURASAUN -->
+  <section id="v-cfg" class="view" hidden>
+    <div class="card">
+      <h2>Operador</h2>
+      <label>Naran operador (ema ne'ebé rejista iha telefone ida-ne'e)
+        <input id="cOperador" placeholder="Ex.: Alf. Isac Mendes"></label>
+      <p class="mini">Grava automátiku. Rejistu foun hotu sei hatudu naran ne'e.</p>
+    </div>
+    <div class="card">
+      <h2>Dadus iha telefone ida-ne'e</h2>
+      <p id="cInfo"></p>
+      <p class="mini" id="cBackupInfo"></p>
+    </div>
+    <div class="card">
+      <h2>1. Exporta (Backup)</h2>
+      <p class="mini">Ficheiru backup (.json) iha rejistu hotu. Haruka ba telefone seluk (WhatsApp, Email, Drive) ka rai iha komputadór.</p>
+      <div class="g2"><button class="btn btn-p" id="eJsonDl">⬇ Download Backup</button><button class="btn btn-s" id="eJsonSh">↗ Fahe Backup</button></div>
+      <button class="btn btn-s w100" id="eXlsx">⬇ Exporta Excel (lista rejistu)</button>
+    </div>
+    <div class="card">
+      <h2>2. Importa</h2>
+      <p class="mini">Aseita: backup (.json) husi app ne'e, Excel (.xlsx) husi app ne'e ka husi folha "Formulariu" Excel Kontribuisaun.</p>
+      <label>Modu importasaun
+        <select id="iModu">
+          <option value="kombina">Kombina — aumenta foun de'it (la duplika)</option>
+          <option value="substitui">Substitui — hamoos dadus atuál no troka</option>
+        </select></label>
+      <input type="file" id="iFile" accept=".json,.xlsx,.xls,.csv,application/json" hidden>
+      <button class="btn btn-p w100" id="iBtn">📂 Hili ficheiru atu importa</button>
+      <div id="iRez" class="ok" hidden></div>
+      <button class="btn btn-s w100" id="iCefo">Karrega dadus CEFO 24 (479 rejistu)</button>
+    </div>
+    <div class="card perigu">
+      <h2>Zona perigu</h2>
+      <button class="btn btn-x w100" id="cHamoos">Hamoos dadus HOTU iha telefone ida-ne'e</button>
+    </div>
+    <p class="mini cen">Versaun <span id="appVer"></span> · FALINTIL-FDTL · DIVCSI</p>
+  </section>
+</main>
+
+<nav class="bottom">
+  <button data-v="dash" class="ativu"><i>📊</i>Dashboard</button>
+  <button data-v="form"><i>➕</i>Rejistu</button>
+  <button data-v="lista"><i>📋</i>Lista</button>
+  <button data-v="rel"><i>📄</i>Relatóriu</button>
+  <button data-v="cfg"><i>💾</i>Dadus</button>
+</nav>
+
+<div id="toast" class="toast" hidden></div>
+
+<dialog id="dlgRel"><div class="dlg-bar"><button class="btn btn-s" id="dlgPrint">🖨 Imprime / PDF</button><button class="btn btn-p" id="dlgFecha">Taka</button></div><iframe id="relFrame" title="Relatóriu"></iframe></dialog>
+
+<script src="lib/xlsx.full.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
