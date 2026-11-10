@@ -1,30 +1,49 @@
-/* Sistema Kontribuisaun F-FDTL — app telefone (PWA, offline)
- * Dadus rai iha telefone (localStorage). Exporta/Importa liu husi ficheiru .json / .xlsx
+/* Sistema Kontribuisaun F-FDTL — v2 (servidor sentrál Supabase)
+ * - Ema hotu bele HAREE (dashboard, lista, relatóriu) maski la iha konta
+ * - Konta (kria husi admin) mak bele REJISTA / EDITA
+ * - La iha internet: rejistu rai iha telefone (fila) no haruka automátiku depois
  */
 'use strict';
-const APP_VER = '1.1.0';
+const APP_VER = '2.0.0';
 const POSTU = ["Alferes", "SubTen", "Ten", "2º Ten", "Capitão", "1º Ten", "Major", "Cap. Ten",
   "Ten. Coronel", "Cap. Fragata", "Coronel", "Cap. Mar-e-Guerra", "Brig. General", "Comodoro",
   "Maj. General", "Contra-Almirante", "Ten. General"];
 const PELOTAUN = ["1º Pelotaun", "2º Pelotaun", "3º Pelotaun"];
 const TIPU = ["Lia Mate", "Kazamento", "Dezastre", "Seluk"];
 const COMP = ["QG", "CFT", "CFN", "FAG", "CAL", "Seluk"];
-const K_DADUS = 'kontrib_ffdtl_rejistu_v1';
-const K_CFG = 'kontrib_ffdtl_cfg_v1';
+const K_CACHE = 'kontrib_ffdtl_cache_v2';     // kópia lokal husi servidor (atu haree offline)
+const K_FILA = 'kontrib_ffdtl_fila_v2';       // operasaun pendente (offline)
+const K_CFG = 'kontrib_ffdtl_cfg_v2';
+const K_V1 = 'kontrib_ffdtl_rejistu_v1';      // dadus versaun antigu (1.x) iha telefone
+const CAMPU = ['id', 'data', 'naran', 'postu', 'pelotaun', 'comp', 'tipu', 'ba_se', 'kuantidade', 'obs', 'operador', 'dispozitivu', 'kria_iha'];
 
-// ------------------------------------------------------------ Armazenamentu
+// ------------------------------------------------------------ Armazenamentu lokal
 const $ = id => document.getElementById(id);
 function leJSON(k, def) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : def; } catch (e) { return def; } }
-function graJSON(k, v) {
-  try { localStorage.setItem(k, JSON.stringify(v)); return true; }
-  catch (e) { alert('ERRU: la konsege grava dadus iha telefone (memória nakonu?). Halo Backup agora.'); return false; }
-}
-let DB = leJSON(K_DADUS, []);
-let CFG = Object.assign({ operador: '', ultimuBackup: '', dispozitivu: '' }, leJSON(K_CFG, {}));
-if (!CFG.dispozitivu) { CFG.dispozitivu = 'TLF-' + Math.random().toString(36).slice(2, 7).toUpperCase(); graJSON(K_CFG, CFG); }
-const grava = () => graJSON(K_DADUS, DB);
-const gravaCfg = () => graJSON(K_CFG, CFG);
+function graJSON(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } }
+const cache0 = leJSON(K_CACHE, {});
+let SERV = Array.isArray(cache0.rejistu) ? cache0.rejistu : [];   // dadus servidor
+let ULTIMA_SYNC = cache0.atualiza_iha || '';
+let FILA = leJSON(K_FILA, []);                                     // [{op, rec|id, t}]
+let FALHA = [];                                                    // operasaun ne'ebé servidor rejeita
+let DB = [];                                                       // SERV + FILA (hatudu)
+let CFG = Object.assign({ dispozitivu: '', perfil: null }, leJSON(K_CFG, {}));
+if (!CFG.dispozitivu) CFG.dispozitivu = 'TLF-' + Math.random().toString(36).slice(2, 7).toUpperCase();
+const gravaCfg = () => graJSON(K_CFG, CFG); gravaCfg();
+const gravaFila = () => graJSON(K_FILA, FILA);
+const gravaCache = () => graJSON(K_CACHE, { rejistu: SERV, atualiza_iha: ULTIMA_SYNC });
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => { });
+
+function kalkulaDB() {
+  const m = new Map(SERV.map(r => [r.id, r]));
+  for (const o of FILA) {
+    if (o.op === 'insert') m.set(o.rec.id, { ...o.rec, _pendente: true });
+    else if (o.op === 'update') m.set(o.rec.id, { ...(m.get(o.rec.id) || {}), ...o.rec, _pendente: true });
+    else if (o.op === 'delete') m.delete(o.id);
+  }
+  DB = [...m.values()];
+}
+kalkulaDB();
 
 // ------------------------------------------------------------ Utilidade
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
@@ -35,15 +54,37 @@ const chave = s => limpa(s).toLowerCase();
 const ohin = () => { const d = new Date(); return new Date(d - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); };
 const dataBR = iso => iso ? iso.split('-').reverse().join('/') : '';
 const agoraTxt = () => new Date().toLocaleString('pt-PT', { dateStyle: 'short', timeStyle: 'short' });
+const oraTxt = iso => iso ? new Date(iso).toLocaleString('pt-PT', { dateStyle: 'short', timeStyle: 'short' }) : '-';
 const carimbu = () => { const d = new Date(), p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}`; };
-function toast(msg, ms = 2600) { const t = $('toast'); t.textContent = msg; t.hidden = false; clearTimeout(toast._t); toast._t = setTimeout(() => t.hidden = true, ms); }
+function toast(msg, ms = 2800) { const t = $('toast'); t.textContent = msg; t.hidden = false; clearTimeout(toast._t); toast._t = setTimeout(() => t.hidden = true, ms); }
 function opsaun(sel, lista, primeiru) {
   sel.innerHTML = (primeiru ? `<option value="">${esc(primeiru)}</option>` : '') + lista.map(v => `<option>${esc(v)}</option>`).join('');
 }
 
+// ------------------------------------------------------------ Servidor (Supabase)
+const KONFIG = window.KONFIG || {};
+const KONFIGURADU = !!(KONFIG.SUPABASE_URL && KONFIG.SUPABASE_ANON_KEY && !/XXXX/.test(KONFIG.SUPABASE_URL) && !/COLE_AQUI/.test(KONFIG.SUPABASE_ANON_KEY));
+const sb = KONFIGURADU && window.supabase ? window.supabase.createClient(KONFIG.SUPABASE_URL, KONFIG.SUPABASE_ANON_KEY,
+  { auth: { persistSession: true, autoRefreshToken: true, storageKey: 'kontrib_ffdtl_auth' } }) : null;
+let SESAUN = null;   // { user, perfil }
+const eAtivu = () => !!(SESAUN && SESAUN.perfil && SESAUN.perfil.ativu);
+const eAdmin = () => eAtivu() && SESAUN.perfil.role === 'admin';
+const meuId = () => SESAUN ? SESAUN.user.id : null;
+const nomeOperador = () => SESAUN ? (SESAUN.perfil.naran || SESAUN.perfil.username) : '';
+const podeEdita = r => eAtivu() && (eAdmin() || r.kria_husi === meuId());
+const eRede = err => !navigator.onLine || /fetch|network|Load failed|timeout|NetworkError/i.test(String(err && (err.message || err)));
+const msgErru = err => {
+  const m = String(err && (err.message || err) || '');
+  if (/row-level security|permission denied/i.test(m)) return 'La iha permisaun (konta la ativu?).';
+  if (/JWT|token/i.test(m)) return 'Sesaun remata. Halo login fali.';
+  return m;
+};
+
+
 // ------------------------------------------------------------ Navegasaun
 let viewAtual = 'dash';
 function hatudu(v) {
+  if (v === 'form' && !eAtivu()) { toast('Presiza login atu rejista.'); v = 'konta'; }
   viewAtual = v;
   document.querySelectorAll('.view').forEach(s => s.hidden = s.id !== 'v-' + v);
   document.querySelectorAll('.bottom button').forEach(b => b.classList.toggle('ativu', b.dataset.v === v));
@@ -141,6 +182,7 @@ function renderDash() {
 }
 $('emaBuka').addEventListener('input', renderDash);
 
+
 // ------------------------------------------------------------ FORMULÁRIU
 let editaId = null;
 opsaun($('iPostu'), POSTU, '— Hili Postu —');
@@ -152,19 +194,19 @@ $('iData').value = ohin();
 function renderForm() {
   $('lNaran').innerHTML = naranLista().map(n => `<option value="${esc(n)}">`).join('');
   $('lBaSe').innerHTML = baSeLista().map(n => `<option value="${esc(n)}">`).join('');
-  const ikus = [...DB].sort((a, b) => (b.kria_iha || '').localeCompare(a.kria_iha || '')).slice(0, 8);
+  const ikus = DB.filter(r => r.kria_husi === meuId()).sort((a, b) => (b.kria_iha || '').localeCompare(a.kria_iha || '')).slice(0, 8);
   $('formIkus').innerHTML = ikus.length ? ikus.map(itemHTML).join('') : '<div class="vaziu">Seidauk iha rejistu.</div>';
   ligaItem($('formIkus'));
 }
-// Bainhira hili naran ne'ebé iha ona, prense Postu no Pelotaun automátiku
 $('iNaran').addEventListener('change', () => {
   const k = chave($('iNaran').value);
-  const r = [...DB].reverse().find(x => chave(x.naran) === k);
+  const r = [...DB].sort((a, b) => (a.kria_iha || '').localeCompare(b.kria_iha || '')).reverse().find(x => chave(x.naran) === k);
   if (r) { if (r.postu) $('iPostu').value = r.postu; if (r.pelotaun) $('iPel').value = r.pelotaun; if (r.comp) $('iComp').value = r.comp; }
 });
 
 $('form').addEventListener('submit', e => {
   e.preventDefault();
+  if (!eAtivu()) { toast('Presiza login.'); hatudu('konta'); return; }
   const d = {
     data: $('iData').value, naran: limpa($('iNaran').value), postu: $('iPostu').value, pelotaun: $('iPel').value, comp: $('iComp').value,
     tipu: $('iTipu').value, ba_se: limpa($('iBaSe').value), kuantidade: Math.round(parseFloat(String($('iKuant').value).replace(',', '.')) * 100) / 100,
@@ -184,19 +226,22 @@ $('form').addEventListener('submit', e => {
 
   if (editaId) {
     const r = DB.find(x => x.id === editaId);
-    Object.assign(r, d, { atualiza_iha: new Date().toISOString() });
-    grava(); toast('✓ Rejistu atualiza ona'); kanselaEdita(); hatudu('lista'); return;
+    if (!r || !podeEdita(r)) { toast('La iha permisaun atu edita.'); return; }
+    // se rejistu seidauk to'o servidor, atualiza de'it operasaun insert iha fila
+    const ins = FILA.find(o => o.op === 'insert' && o.rec.id === editaId);
+    if (ins) Object.assign(ins.rec, d); else FILA.push({ op: 'update', rec: { id: editaId, ...d }, t: Date.now() });
+    gravaFila(); kalkulaDB(); toast('✓ Rejistu atualiza ona'); kanselaEdita(); sinkroniza(); hatudu('lista'); return;
   }
-  DB.push({ id: uid(), ...d, operador: CFG.operador || '', dispozitivu: CFG.dispozitivu, kria_iha: new Date().toISOString() });
-  if (!grava()) { DB.pop(); return; }
-  toast(`✓ Save: ${d.naran} — ${usd(d.kuantidade)}`);
+  const rec = { id: uid(), ...d, operador: nomeOperador(), dispozitivu: CFG.dispozitivu, kria_iha: new Date().toISOString(), kria_husi: meuId() };
+  FILA.push({ op: 'insert', rec, t: Date.now() }); gravaFila(); kalkulaDB();
+  toast(`✓ Save: ${d.naran} — ${usd(d.kuantidade)}${navigator.onLine ? '' : ' (offline: sei haruka depois)'}`);
   $('iNaran').value = ''; $('iKuant').value = ''; $('iObs').value = '';
   $('iNaran').focus();
-  renderForm();
+  renderForm(); sinkroniza();
 });
 
 function edita(id) {
-  const r = DB.find(x => x.id === id); if (!r) return;
+  const r = DB.find(x => x.id === id); if (!r || !podeEdita(r)) return;
   editaId = id;
   hatudu('form');
   $('formTit').textContent = 'Edita Rejistu';
@@ -211,18 +256,22 @@ function kanselaEdita() {
 }
 $('btnKansela').addEventListener('click', () => { kanselaEdita(); hatudu('lista'); });
 function hamoos(id) {
-  const r = DB.find(x => x.id === id); if (!r) return;
+  const r = DB.find(x => x.id === id); if (!r || !podeEdita(r)) return;
   if (!confirm(`Hamoos rejistu?\n${r.naran} — ${usd(r.kuantidade)} (${r.tipu} ba ${r.ba_se})`)) return;
-  DB = DB.filter(x => x.id !== id); grava(); toast('Rejistu hamoos ona'); render();
+  const iIns = FILA.findIndex(o => o.op === 'insert' && o.rec.id === id);
+  if (iIns >= 0) FILA = FILA.filter(o => !(o.rec && o.rec.id === id));   // seidauk to'o servidor: kansela de'it
+  else FILA.push({ op: 'delete', id, t: Date.now() });
+  gravaFila(); kalkulaDB(); toast('Rejistu hamoos ona'); sinkroniza(); render();
 }
 
 // ------------------------------------------------------------ LISTA
 let limiteLista = 50;
 function itemHTML(r) {
+  const ak = podeEdita(r) ? `<div class="ak"><button class="btn btn-s" data-ed="${esc(r.id)}">Edita</button><button class="btn btn-x" data-del="${esc(r.id)}">Hamoos</button></div>` : '';
   return `<div class="item"><div class="inf"><div class="nm">${esc(r.postu)} ${esc(r.naran)}</div>
     <div class="det"><span class="tag">${esc(r.tipu)}</span> ba <b>${esc(r.ba_se)}</b> · ${esc(r.comp || 'Comp: -')} · ${esc(r.pelotaun || '-')}</div>
     <div class="det">${dataBR(r.data) || 'la iha data'}${r.operador ? ' · rejista: ' + esc(r.operador) : ''}${r.obs ? ' · ' + esc(r.obs) : ''}</div>
-    <div class="ak"><button class="btn btn-s" data-ed="${esc(r.id)}">Edita</button><button class="btn btn-x" data-del="${esc(r.id)}">Hamoos</button></div></div>
+    ${r._pendente ? '<div class="pend">⏳ Seidauk haruka ba servidor</div>' : ''}${ak}</div>
     <div class="val">${usd(r.kuantidade)}</div></div>`;
 }
 function ligaItem(cont) {
@@ -230,8 +279,9 @@ function ligaItem(cont) {
   cont.querySelectorAll('[data-del]').forEach(b => b.onclick = () => hamoos(b.dataset.del));
 }
 function renderLista() {
-  const q = chave($('lBuka').value), t = $('lTipu').value;
-  const lst = DB.filter(r => (!t || r.tipu === t) && (!q || chave(r.naran).includes(q) || chave(r.ba_se).includes(q)))
+  $('lSohauWrap').hidden = !eAtivu();
+  const q = chave($('lBuka').value), t = $('lTipu').value, sohau = eAtivu() && $('lSohau').checked;
+  const lst = DB.filter(r => (!t || r.tipu === t) && (!sohau || r.kria_husi === meuId()) && (!q || chave(r.naran).includes(q) || chave(r.ba_se).includes(q)))
     .sort((a, b) => (b.data || '').localeCompare(a.data || '') || (b.kria_iha || '').localeCompare(a.kria_iha || ''));
   const tot = lst.reduce((s, r) => s + (Number(r.kuantidade) || 0), 0);
   $('lResumu').textContent = `${lst.length} rejistu · Total ${usd(tot)}`;
@@ -242,6 +292,7 @@ function renderLista() {
 opsaun($('lTipu'), TIPU, 'Tipu hotu');
 $('lBuka').addEventListener('input', () => { limiteLista = 50; renderLista(); });
 $('lTipu').addEventListener('change', () => { limiteLista = 50; renderLista(); });
+$('lSohau').addEventListener('change', () => { limiteLista = 50; renderLista(); });
 $('lMais').addEventListener('click', () => { limiteLista += 100; renderLista(); });
 
 // ------------------------------------------------------------ Entrega ficheiru (download / share)
@@ -364,7 +415,7 @@ tfoot td{font-weight:700;background:var(--k);border-top:2px solid var(--v)}
 </style></head><body><div class="f">
 <div class="kab"><div class="l1">FALINTIL-FORSA DEFEZA TIMOR-LESTE</div><div class="l2">QUARTEL GENERAL, FATUHADA, DILI</div>
 <h1>RELATÓRIU KONTRIBUISAUN</h1><div>Lia Mate, Kazamento, Dezastre no Seluk</div></div>
-<div class="meta"><span><b>Filtru:</b> ${esc(filtruTxt())}</span><span><b>Jera iha:</b> ${agoraTxt()}${CFG.operador ? ' · ' + esc(CFG.operador) : ''}</span></div>
+<div class="meta"><span><b>Filtru:</b> ${esc(filtruTxt())}</span><span><b>Jera iha:</b> ${agoraTxt()}${nomeOperador() ? ' · ' + esc(nomeOperador()) : ''}</span></div>
 <h2>1. Sumáriu Jerál</h2><div class="kp"><div class="p"><span>Total Jerál</span><b>${usd(est.total)}</b></div>
 <div><span>Total Rejistu</span><b>${est.n}</b></div><div><span>Membru</span><b>${est.nEma}</b></div><div><span>Média / Membru</span><b>${usd(est.media)}</b></div></div>
 <div class="d"><div><h2>2. Tuir Tipu</h2>${tGrupu('Tipu', TIPU.map(t => ({ label: t, ...est.tipu[t] })))}</div>
@@ -396,17 +447,8 @@ $('rHaree').onclick = () => { $('relFrame').srcdoc = geraHTML(); $('dlgRel').sho
 $('dlgFecha').onclick = () => $('dlgRel').close();
 $('dlgPrint').onclick = () => { try { $('relFrame').contentWindow.print(); } catch (e) { toast('Uza Download HTML no imprime husi navegador.'); } };
 
-// ------------------------------------------------------------ EXPORTA / IMPORTA
-function backupBlob() {
-  const pak = { app: 'kontribuisaun-ffdtl', versaun: 1, exporta_iha: new Date().toISOString(), operador: CFG.operador, dispozitivu: CFG.dispozitivu, total_rejistu: DB.length, rejistu: DB };
-  return new Blob([JSON.stringify(pak, null, 1)], { type: 'application/json' });
-}
-const nomeBackup = () => `Backup_Kontribuisaun_${(CFG.operador || CFG.dispozitivu).replace(/[^\w]+/g, '_')}_${carimbu()}.json`;
-function markaBackup() { CFG.ultimuBackup = new Date().toISOString(); gravaCfg(); renderCfg(); }
-$('eJsonDl').onclick = () => { download(backupBlob(), nomeBackup()); markaBackup(); toast('Backup download ona'); };
-$('eJsonSh').onclick = async () => { if (await fahe(backupBlob(), nomeBackup(), 'Backup Kontribuisaun')) markaBackup(); };
-$('eXlsx').onclick = () => { download(geraExcel(true), `Rejistu_Kontribuisaun_${carimbu()}.xlsx`); toast('Excel exporta ona'); };
 
+// ------------------------------------------------------------ Normaliza dadus importa
 const impressaun = r => [r.data || '', chave(r.naran), chave(r.ba_se), r.tipu, Number(r.kuantidade).toFixed(2), chave(r.obs)].join('|');
 function normaliza(o) {
   const mapaPel = { '1': '1º Pelotaun', '2': '2º Pelotaun', '3': '3º Pelotaun' };
@@ -445,33 +487,173 @@ function leExcel(buf) {
   }
   return out;
 }
-function importa(lista, modu, origem) {
-  const regs = lista.map(normaliza).filter(r => r.naran && r.ba_se && r.kuantidade > 0);
-  const invalidu = lista.length - regs.length;
-  if (modu === 'substitui') {
-    if (!confirm(`SUBSTITUI: dadus atuál (${DB.length} rejistu) sei hamoos no troka ho ${regs.length} rejistu husi ficheiru. Kontinua?`)) return null;
-    DB = regs.map(r => ({ ...r, id: r.id || uid() })); grava();
-    return { aumenta: DB.length, repete: 0, invalidu, origem };
-  }
-  const ids = new Set(DB.map(r => r.id)), imp = new Set(DB.map(impressaun));
-  const porId = new Map(DB.map(r => [r.id, r]));
-  let aumenta = 0, repete = 0, kompleta = 0;
-  for (const r of regs) {
-    const iha = r.id && porId.get(r.id);
-    // rejistu ne'ebé iha ona maibé seidauk iha Comp/Unidade -> kompleta husi ficheiru
-    if (iha && !iha.comp && r.comp) { iha.comp = r.comp; kompleta++; }
-    if ((r.id && ids.has(r.id)) || imp.has(impressaun(r))) { repete++; continue; }
-    r.id = r.id || uid(); DB.push(r); ids.add(r.id); imp.add(impressaun(r)); aumenta++;
-  }
-  grava();
-  return { aumenta, repete, invalidu, origem, kompleta };
+
+// ------------------------------------------------------------ SINKRONIZASAUN ho servidor
+const doServ = r => ({ ...r, data: r.data || '', kuantidade: Number(r.kuantidade) || 0, postu: r.postu || '', pelotaun: r.pelotaun || '', comp: r.comp || '', obs: r.obs || '', operador: r.operador || '' });
+const paraServ = r => { const o = {}; for (const k of CAMPU) if (r[k] !== undefined) o[k] = r[k]; o.data = r.data || null; return o; };
+const EDITAVEL = ['data', 'naran', 'postu', 'pelotaun', 'comp', 'tipu', 'ba_se', 'kuantidade', 'obs'];
+const paraServUpd = r => { const o = {}; for (const k of EDITAVEL) if (r[k] !== undefined) o[k] = r[k]; o.data = r.data || null; return o; };
+
+let carregando = false, sincronizando = false;
+function estadu(txt, classe) {
+  const b = $('btnSync'); b.textContent = txt; b.className = 'pill' + (classe ? ' ' + classe : '');
+  const n = FILA.length;
+  $('bannerPendente').hidden = !n && !FALHA.length;
+  $('bannerPendente').innerHTML = (n ? `⏳ ${n} operasaun seidauk haruka ba servidor (sei haruka automátiku bainhira iha internet).` : '') +
+    (FALHA.length ? `<br>⚠ ${FALHA.length} operasaun servidor rejeita: ${esc(FALHA[FALHA.length - 1].erru)} <a href="#" id="lnkFalha">limpa</a>` : '');
+  const l = $('lnkFalha'); if (l) l.onclick = ev => { ev.preventDefault(); FALHA = []; estadu(b.textContent); };
 }
-function hatuduRez(z) {
-  if (!z) return;
-  $('iRez').hidden = false;
-  $('iRez').innerHTML = `✓ Importa husi <b>${esc(z.origem)}</b>: <b>${z.aumenta}</b> rejistu foun` +
-    (z.repete ? `, ${z.repete} ignora (iha ona)` : '') + (z.kompleta ? `, ${z.kompleta} kompleta ho Comp/Unidade` : '') + (z.invalidu ? `, ${z.invalidu} la válidu` : '') + `.<br>Total agora: ${DB.length} rejistu.`;
-  renderCfg(); toast(`Importa: ${z.aumenta} rejistu foun`);
+function atualizaEstadu() {
+  if (!sb) return estadu('Offline (la konfigura)', 'off');
+  if (!navigator.onLine) return estadu(`Offline${FILA.length ? ' · ' + FILA.length + ' pendente' : ''}`, 'off');
+  if (carregando || sincronizando) return estadu('⟳ Atualiza...', 'gira');
+  estadu(`⟳ ${ULTIMA_SYNC ? new Date(ULTIMA_SYNC).toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' }) : 'Atualiza'}${FILA.length ? ' · ' + FILA.length + ' pendente' : ''}`);
+}
+
+async function carregaServidor(silensiu) {
+  if (!sb || carregando) return;
+  carregando = true; atualizaEstadu();
+  try {
+    const PAG = 1000, tudu = [];
+    for (let from = 0; ; from += PAG) {
+      const { data, error } = await sb.from('kontribuisaun').select('*').order('kria_iha', { ascending: true }).order('id').range(from, from + PAG - 1);
+      if (error) throw error;
+      tudu.push(...data);
+      if (data.length < PAG) break;
+    }
+    SERV = tudu.map(doServ); ULTIMA_SYNC = new Date().toISOString(); gravaCache(); kalkulaDB();
+  } catch (e) {
+    if (!silensiu && !eRede(e)) toast('Erru servidor: ' + msgErru(e));
+  } finally { carregando = false; atualizaEstadu(); render(); }
+}
+
+async function sinkroniza() {
+  if (!sb || !eAtivu() || sincronizando || !FILA.length || !navigator.onLine) { atualizaEstadu(); return; }
+  sincronizando = true; atualizaEstadu();
+  let mudou = false;
+  try {
+    while (FILA.length) {
+      const o = FILA[0]; let res;
+      if (o.op === 'insert') res = await sb.from('kontribuisaun').upsert(paraServ(o.rec), { onConflict: 'id', ignoreDuplicates: true });
+      else if (o.op === 'update') res = await sb.from('kontribuisaun').update(paraServUpd(o.rec)).eq('id', o.rec.id).select('id');
+      else res = await sb.from('kontribuisaun').delete().eq('id', o.id).select('id');
+      if (res.error) {
+        if (eRede(res.error)) break;                         // sei koko fali depois
+        FALHA.push({ ...o, erru: msgErru(res.error) });
+      } else if (o.op !== 'insert' && Array.isArray(res.data) && !res.data.length) {
+        FALHA.push({ ...o, erru: 'La iha permisaun ka rejistu la iha ona.' });
+      }
+      FILA.shift(); gravaFila(); mudou = true;
+    }
+  } finally { sincronizando = false; }
+  if (mudou) await carregaServidor(true); else atualizaEstadu();
+}
+
+$('btnSync').onclick = async () => { await sinkroniza(); await carregaServidor(); };
+window.addEventListener('online', async () => { await sinkroniza(); carregaServidor(true); });
+window.addEventListener('offline', atualizaEstadu);
+document.addEventListener('visibilitychange', () => { if (!document.hidden && navigator.onLine) { sinkroniza(); carregaServidor(true); } });
+setInterval(() => { if (!document.hidden && navigator.onLine) carregaServidor(true); }, 60000);
+
+// ------------------------------------------------------------ LOGIN / KONTA
+async function kargaPerfil() {
+  if (!sb) { SESAUN = null; return; }
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) { SESAUN = null; CFG.perfil = null; gravaCfg(); return; }
+  const { data: p, error } = await sb.from('perfil').select('*').eq('id', session.user.id).maybeSingle();
+  if (error && eRede(error) && CFG.perfil && CFG.perfil.id === session.user.id) { SESAUN = { user: session.user, perfil: CFG.perfil }; return; }
+  if (!p || !p.ativu) {
+    await sb.auth.signOut(); SESAUN = null; CFG.perfil = null; gravaCfg();
+    toast(p ? 'Konta ida-ne\'e la ativu. Kontaktu admin.' : 'Konta la iha perfil. Kontaktu admin.', 4000);
+    return;
+  }
+  SESAUN = { user: session.user, perfil: p }; CFG.perfil = p; gravaCfg();
+}
+const emailHusi = u => u.includes('@') ? u.trim().toLowerCase() : `${u.trim().toLowerCase()}@${KONFIG.DOMINIU_EMAIL || 'kontribuisaun.local'}`;
+$('loginBox').addEventListener('submit', async e => {
+  e.preventDefault();
+  if (!sb) { alert('Sistema seidauk konfigura (config.js).'); return; }
+  const u = $('lgUser').value, s = $('lgSenha').value;
+  $('lgErru').hidden = true; $('lgBtn').disabled = true; $('lgBtn').textContent = 'Hein...';
+  try {
+    const { error } = await sb.auth.signInWithPassword({ email: emailHusi(u), password: s });
+    if (error) throw error;
+    await kargaPerfil();
+    if (eAtivu()) { $('lgSenha').value = ''; toast(`Bem-vindu, ${nomeOperador()}`); await sinkroniza(); await carregaServidor(true); }
+  } catch (err) {
+    $('lgErru').hidden = false;
+    $('lgErru').textContent = eRede(err) ? 'La iha internet. Login presiza internet.' : (/invalid/i.test(err.message) ? 'Username ka senha la loos.' : msgErru(err));
+  } finally { $('lgBtn').disabled = false; $('lgBtn').textContent = 'Tama'; atualizaUI(); render(); }
+});
+$('btnSai').onclick = async () => {
+  if (FILA.length && !confirm(`Iha ${FILA.length} operasaun seidauk haruka ba servidor. Se sai agora, sei haruka bainhira login fali iha telefone ida-ne'e. Sai nafatin?`)) return;
+  if (sb) await sb.auth.signOut().catch(() => { });
+  SESAUN = null; CFG.perfil = null; gravaCfg(); kanselaEdita(); atualizaUI(); hatudu('dash'); toast('Sai ona');
+};
+
+function atualizaUI() {
+  const ativu = eAtivu();
+  $('navForm').hidden = !ativu;
+  $('navKonta').querySelector('span').textContent = ativu ? 'Konta' : 'Login';
+  $('topSub').textContent = ativu ? `${nomeOperador()} · ${SESAUN.perfil.role}` : 'Haree de\'it — login atu rejista';
+  $('bannerKonfig').hidden = !!sb;
+  atualizaEstadu();
+}
+
+// ------------------------------------------------------------ MIGRASAUN dadus versaun antigu (1.x)
+function dadusV1() { const v = leJSON(K_V1, []); return Array.isArray(v) ? v : []; }
+function renderMigra() {
+  const v1 = dadusV1();
+  $('migraBox').hidden = !v1.length;
+  if (!v1.length) return;
+  $('migraInfo').innerHTML = `Iha <b>${v1.length}</b> rejistu husi versaun antigu rai iha telefone ida-ne'e. ` +
+    (eAtivu() ? 'Envia ba servidor atu ema hotu bele haree. Rejistu ne\'ebé iha ona iha servidor la duplika.' : '<b>Halo login</b> atu envia sira ba servidor.');
+  $('btnMigra').hidden = !eAtivu();
+}
+$('btnMigra').onclick = async () => {
+  const v1 = dadusV1();
+  const z = await enviaLote(v1, 'telefone (versaun antigu)');
+  if (z && !z.erru) {
+    graJSON(K_V1 + '_backup_' + carimbu(), v1); localStorage.removeItem(K_V1);
+    renderMigra();
+  }
+};
+
+// ------------------------------------------------------------ IMPORTA (ba servidor)
+async function enviaLote(lista, origem) {
+  if (!sb || !eAtivu()) { toast('Presiza login.'); return null; }
+  if (!navigator.onLine) { alert('Importa presiza internet.'); return null; }
+  await carregaServidor(true);
+  const regs = lista.map(normaliza).filter(r => r.naran && r.ba_se && r.kuantidade > 0 && TIPU.includes(r.tipu));
+  const invalidu = lista.length - regs.length;
+  const ids = new Set(DB.map(r => r.id)), imp = new Set(DB.map(impressaun));
+  const novu = [];
+  for (const r of regs) {
+    if ((r.id && ids.has(r.id)) || imp.has(impressaun(r))) continue;
+    r.id = r.id || uid(); ids.add(r.id); imp.add(impressaun(r));
+    if (!r.operador) r.operador = nomeOperador();
+    novu.push(r);
+  }
+  const repete = regs.length - novu.length;
+  $('iRez').hidden = false; $('iRez').className = 'ok'; $('iRez').textContent = `Haruka ${novu.length} rejistu...`;
+  let env = 0;
+  try {
+    for (let i = 0; i < novu.length; i += 500) {
+      const { error } = await sb.from('kontribuisaun').upsert(novu.slice(i, i + 500).map(paraServ), { onConflict: 'id', ignoreDuplicates: true });
+      if (error) throw error;
+      env += Math.min(500, novu.length - i);
+    }
+  } catch (e) {
+    $('iRez').className = 'erru';
+    $('iRez').textContent = `Erru depois haruka ${env} rejistu: ${msgErru(e)}. Koko fali (la duplika).`;
+    await carregaServidor(true);
+    return { erru: true };
+  }
+  await carregaServidor(true);
+  $('iRez').innerHTML = `✓ Importa husi <b>${esc(origem)}</b>: <b>${env}</b> rejistu foun` +
+    (repete ? `, ${repete} ignora (iha ona)` : '') + (invalidu ? `, ${invalidu} la válidu` : '') + `.<br>Total iha servidor: ${SERV.length} rejistu.`;
+  toast(`Importa: ${env} rejistu foun`);
+  return { env, repete, invalidu };
 }
 $('iBtn').onclick = () => $('iFile').click();
 $('iFile').addEventListener('change', async e => {
@@ -486,48 +668,131 @@ $('iFile').addEventListener('change', async e => {
       lista = leExcel(new Uint8Array(await f.arrayBuffer()));
       if (!lista.length) throw new Error('La hetan koluna "Naran" no "Kuantidade" iha ficheiru Excel.');
     }
-    hatuduRez(importa(lista, $('iModu').value, f.name));
+    await enviaLote(lista, f.name);
   } catch (err) { alert('ERRU importa: ' + err.message); }
 });
 $('iCefo').onclick = async () => {
-  try {
-    const j = await (await fetch('data/cefo24.json')).json();
-    hatuduRez(importa(j.rejistu, 'kombina', 'CEFO 24'));
-  } catch (e) { alert('La konsege karrega dadus CEFO 24: ' + e.message); }
+  try { const j = await (await fetch('data/cefo24.json')).json(); await enviaLote(j.rejistu, 'CEFO 24'); }
+  catch (e) { alert('La konsege karrega dadus CEFO 24: ' + e.message); }
 };
-$('cHamoos').onclick = () => {
-  const t = prompt(`Hamoos rejistu HOTU (${DB.length}) husi telefone ida-ne'e?\nHalo backup uluk!\n\nHakerek HAMOOS atu konfirma:`);
-  if (t && t.trim().toUpperCase() === 'HAMOOS') { DB = []; grava(); renderCfg(); toast('Dadus hotu hamoos ona'); }
-};
-$('cOperador').addEventListener('input', e => { CFG.operador = e.target.value.trim(); gravaCfg(); });
 
-function renderCfg() {
-  $('cOperador').value = CFG.operador;
+// ------------------------------------------------------------ EXPORTA
+function backupBlob() {
+  const pak = { app: 'kontribuisaun-ffdtl', versaun: 2, exporta_iha: new Date().toISOString(), exporta_husi: nomeOperador() || 'publiku', total_rejistu: DB.length, rejistu: DB.map(r => { const o = { ...r }; delete o._pendente; return o; }) };
+  return new Blob([JSON.stringify(pak, null, 1)], { type: 'application/json' });
+}
+$('eJsonDl').onclick = () => { download(backupBlob(), `Backup_Kontribuisaun_${carimbu()}.json`); toast('Backup download ona'); };
+$('eXlsx').onclick = () => { download(geraExcel(true), `Rejistu_Kontribuisaun_${carimbu()}.xlsx`); toast('Excel exporta ona'); };
+$('cLimpaCache').onclick = async () => {
+  if (FILA.length) { alert(`Iha ${FILA.length} operasaun seidauk haruka. Liga internet no hein to'o haruka uluk.`); return; }
+  if (!confirm('Hamoos kópia lokal? Dadus iha servidor la lakon; sei karrega fali.')) return;
+  SERV = []; ULTIMA_SYNC = ''; gravaCache(); kalkulaDB(); await carregaServidor(); renderKonta();
+};
+
+// ------------------------------------------------------------ ADMIN: jestaun utilizador
+async function chamaFuncao(body) {
+  const { data, error } = await sb.functions.invoke('admin-utilizador', { body: { ...body, dominiu: KONFIG.DOMINIU_EMAIL || 'kontribuisaun.local' } });
+  if (error) {
+    let m = error.message;
+    try { const j = await error.context.json(); if (j && j.erru) m = j.erru; } catch (e) { }
+    if (/Failed to send|not found|404/i.test(m)) m = 'Funsaun "admin-utilizador" seidauk instala iha Supabase (haree Guia).';
+    throw new Error(m);
+  }
+  if (data && data.erru) throw new Error(data.erru);
+  return data;
+}
+async function renderAdmin() {
+  $('adminBox').hidden = !eAdmin();
+  if (!eAdmin()) return;
+  const { data, error } = await sb.from('perfil').select('*').order('role').order('username');
+  if (error) { $('userLista').innerHTML = `<p class="erru">${esc(msgErru(error))}</p>`; return; }
+  const contagem = {}; SERV.forEach(r => { if (r.kria_husi) contagem[r.kria_husi] = (contagem[r.kria_husi] || 0) + 1; });
+  $('userLista').innerHTML = `<p class="mini" style="margin-top:12px">${data.length} konta</p>` + data.map(u => {
+    const eu = u.id === meuId();
+    return `<div class="user-row"><div class="top-l"><div><b>${esc(u.naran || u.username)}</b><div class="mini">👤 ${esc(u.username)} · ${contagem[u.id] || 0} rejistu</div></div>
+      <div>${u.role === 'admin' ? '<span class="tag adm">admin</span>' : '<span class="tag">operador</span>'} ${u.ativu ? '' : '<span class="tag off">la ativu</span>'}</div></div>
+      ${eu ? '<div class="mini" style="margin-top:6px">(ita-nia konta)</div>' : `<div class="ak">
+        <select data-role="${u.id}"><option value="operador" ${u.role === 'operador' ? 'selected' : ''}>Operador</option><option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Admin</option></select>
+        <button class="btn btn-s" data-ativu="${u.id}" data-v="${u.ativu ? 0 : 1}">${u.ativu ? 'Dezativa' : 'Ativa'}</button>
+        <button class="btn btn-s" data-senha="${u.id}" data-n="${esc(u.username)}">Troka senha</button>
+        <button class="btn btn-x" data-hamoos="${u.id}" data-n="${esc(u.username)}">Hamoos</button></div>`}</div>`;
+  }).join('');
+  const box = $('userLista');
+  box.querySelectorAll('[data-role]').forEach(s => s.onchange = async () => {
+    const { data: r, error } = await sb.from('perfil').update({ role: s.value }).eq('id', s.dataset.role).select('id');
+    toast(error || !r.length ? 'Erru: ' + msgErru(error || 'la muda') : 'Role muda ona'); renderAdmin();
+  });
+  box.querySelectorAll('[data-ativu]').forEach(b => b.onclick = async () => {
+    const { data: r, error } = await sb.from('perfil').update({ ativu: b.dataset.v === '1' }).eq('id', b.dataset.ativu).select('id');
+    toast(error || !r.length ? 'Erru: ' + msgErru(error || 'la muda') : (b.dataset.v === '1' ? 'Konta ativa ona' : 'Konta dezativa ona')); renderAdmin();
+  });
+  box.querySelectorAll('[data-senha]').forEach(b => b.onclick = async () => {
+    const s = prompt(`Senha foun ba "${b.dataset.n}" (mínimu 6):`); if (!s) return;
+    try { await chamaFuncao({ asaun: 'troka_senha', id: b.dataset.senha, senha: s }); toast('Senha troka ona'); } catch (e) { alert(e.message); }
+  });
+  box.querySelectorAll('[data-hamoos]').forEach(b => b.onclick = async () => {
+    if (!confirm(`Hamoos konta "${b.dataset.n}"? Rejistu sira ne'ebé nia halo sei mantein.`)) return;
+    try { await chamaFuncao({ asaun: 'hamoos', id: b.dataset.hamoos }); toast('Konta hamoos ona'); renderAdmin(); } catch (e) { alert(e.message); }
+  });
+}
+$('novoUser').addEventListener('submit', async e => {
+  e.preventDefault();
+  $('nuErru').hidden = true;
+  const body = { asaun: 'kria', username: $('nuUser').value.trim().toLowerCase(), naran: $('nuNaran').value.trim(), senha: $('nuSenha').value, role: $('nuRole').value };
+  if (!/^[a-z0-9._-]{3,30}$/.test(body.username)) { $('nuErru').hidden = false; $('nuErru').textContent = 'Username: 3-30 letra ki\'ik, numeru, . _ - (la iha espasu).'; return; }
+  if (body.senha.length < 6) { $('nuErru').hidden = false; $('nuErru').textContent = 'Senha mínimu karakter 6.'; return; }
+  try {
+    await chamaFuncao(body);
+    toast(`✓ Konta "${body.username}" kria ona`);
+    $('novoUser').reset(); $('novoUserBox').open = false; renderAdmin();
+  } catch (err) { $('nuErru').hidden = false; $('nuErru').textContent = err.message; }
+});
+
+// ------------------------------------------------------------ KONTA (render)
+function renderKonta() {
+  const ativu = eAtivu();
+  $('loginBox').hidden = ativu; $('kontaBox').hidden = !ativu;
+  $('importBox').hidden = !ativu; $('iCefo').hidden = !eAdmin();
+  if (ativu) {
+    const p = SESAUN.perfil, meus = DB.filter(r => r.kria_husi === meuId()).length;
+    $('kInfo').innerHTML = `<b>${esc(p.naran || p.username)}</b><br><span class="mini">👤 ${esc(p.username)} · ${p.role === 'admin' ? 'Administrador' : 'Operador'} · ${meus} rejistu halo husi ita</span>`;
+  }
+  renderMigra(); renderAdmin();
   const tot = DB.reduce((s, r) => s + (Number(r.kuantidade) || 0), 0);
-  $('cInfo').innerHTML = `<b>${DB.length}</b> rejistu · Total <b>${usd(tot)}</b><br><span class="mini">ID telefone: ${esc(CFG.dispozitivu)}</span>`;
-  if (CFG.ultimuBackup) {
-    const dias = Math.floor((Date.now() - new Date(CFG.ultimuBackup)) / 864e5);
-    $('cBackupInfo').textContent = `Backup ikus: ${new Date(CFG.ultimuBackup).toLocaleString('pt-PT')}` + (dias >= 7 ? ` — ⚠ liu ${dias} loron, halo backup foun!` : '');
-  } else $('cBackupInfo').textContent = DB.length ? '⚠ Seidauk halo backup. Halo backup regularmente!' : '';
+  $('cInfo').innerHTML = `${DB.length} rejistu (${usd(tot)}) · atualiza ikus: ${oraTxt(ULTIMA_SYNC)}<br>Pendente: ${FILA.length} · ID telefone: ${esc(CFG.dispozitivu)}`;
   $('appVer').textContent = APP_VER;
 }
 
 // ------------------------------------------------------------ Render jerál
 function render() {
-  if (viewAtual === 'dash') renderDash();
+  if (viewAtual === 'dash') { renderDash(); $('dAtualiza').textContent = ULTIMA_SYNC ? `Dadus servidor atualiza iha ${oraTxt(ULTIMA_SYNC)}` : ''; }
   else if (viewAtual === 'form') renderForm();
   else if (viewAtual === 'lista') renderLista();
   else if (viewAtual === 'rel') renderRel();
-  else if (viewAtual === 'cfg') renderCfg();
+  else if (viewAtual === 'konta') renderKonta();
 }
-// Sinkroniza bainhira tab seluk muda dadus
-window.addEventListener('storage', e => { if (e.key === K_DADUS) { DB = leJSON(K_DADUS, []); render(); } });
 
 // ------------------------------------------------------------ Instalasaun (PWA)
 let promptInstala = null;
 window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); promptInstala = e; $('btnInstall').hidden = false; });
 $('btnInstall').onclick = async () => { if (!promptInstala) return; promptInstala.prompt(); await promptInstala.userChoice; promptInstala = null; $('btnInstall').hidden = true; };
 window.addEventListener('appinstalled', () => { $('btnInstall').hidden = true; toast('✓ App instala ona'); });
-if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => { });
+if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+  const tinhaControlador = !!navigator.serviceWorker.controller;
+  let jaRecarrega = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (tinhaControlador && !jaRecarrega) { jaRecarrega = true; location.reload(); }
+  });
+  navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(reg => reg.update()).catch(() => { });
+}
 
-render();
+// ------------------------------------------------------------ Hahú
+(async function hahu() {
+  atualizaUI(); render();
+  if (!sb) return;
+  sb.auth.onAuthStateChange((ev) => { if (ev === 'SIGNED_OUT' && SESAUN) { SESAUN = null; atualizaUI(); render(); } });
+  try { await kargaPerfil(); } catch (e) { }
+  atualizaUI(); render();
+  await sinkroniza();
+  await carregaServidor(true);
+})();

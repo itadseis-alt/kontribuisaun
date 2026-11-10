@@ -1,13 +1,16 @@
 // Service worker: app funsiona offline depois loke dala ida.
-const VERSAUN = 'kontribuisaun-v1.1.0';
+// Network-first ba kódigu (index/app/style/data) -> telefone simu versaun foun kedas bainhira iha internet.
+const VERSAUN = 'kontribuisaun-v2.0.0';
 const ASSETS = [
   './', './index.html', './app.js', './style.css', './manifest.webmanifest',
-  './lib/xlsx.full.min.js', './data/cefo24.json',
+  './config.js', './lib/xlsx.full.min.js', './lib/supabase.js', './lib/591.supabase.js', './data/cefo24.json',
   './icons/icon-192.png', './icons/icon-512.png', './icons/maskable-512.png', './icons/apple-touch-icon.png'
 ];
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(VERSAUN).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(VERSAUN)
+    .then(c => c.addAll(ASSETS.map(u => new Request(u, { cache: 'reload' }))))
+    .then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', e => {
@@ -16,19 +19,21 @@ self.addEventListener('activate', e => {
     .then(() => self.clients.claim()));
 });
 
-// Network-first ba HTML (atu simu atualizasaun), cache-first ba seluk.
 self.addEventListener('fetch', e => {
   const req = e.request;
-  if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) return;
-  const isHtml = req.mode === 'navigate' || req.destination === 'document';
-  if (isHtml) {
-    e.respondWith(fetch(req).then(r => {
-      const copy = r.clone(); caches.open(VERSAUN).then(c => c.put('./index.html', copy)); return r;
-    }).catch(() => caches.match('./index.html')));
+  const url = new URL(req.url);
+  if (req.method !== 'GET' || url.origin !== location.origin) return;
+  const estatiku = /\/(lib|icons)\//.test(url.pathname);   // la muda: cache-first
+  if (estatiku) {
+    e.respondWith(caches.match(req, { ignoreSearch: true }).then(hit => hit || fetch(req)));
     return;
   }
-  e.respondWith(caches.match(req, { ignoreSearch: true }).then(hit => hit || fetch(req).then(r => {
-    if (r.ok) { const copy = r.clone(); caches.open(VERSAUN).then(c => c.put(req, copy)); }
-    return r;
-  })));
+  const isHtml = req.mode === 'navigate' || req.destination === 'document';
+  const chave = isHtml ? './index.html' : url.pathname;
+  e.respondWith(
+    fetch(req.url, { cache: 'no-cache' }).then(r => {
+      if (r.ok) { const copy = r.clone(); caches.open(VERSAUN).then(c => c.put(isHtml ? './index.html' : new Request(url.pathname), copy)); }
+      return r;
+    }).catch(() => caches.match(isHtml ? './index.html' : req, { ignoreSearch: true }))
+  );
 });
