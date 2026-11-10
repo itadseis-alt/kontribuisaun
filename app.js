@@ -2,12 +2,13 @@
  * Dadus rai iha telefone (localStorage). Exporta/Importa liu husi ficheiru .json / .xlsx
  */
 'use strict';
-const APP_VER = '1.0.0';
+const APP_VER = '1.1.0';
 const POSTU = ["Alferes", "SubTen", "Ten", "2º Ten", "Capitão", "1º Ten", "Major", "Cap. Ten",
   "Ten. Coronel", "Cap. Fragata", "Coronel", "Cap. Mar-e-Guerra", "Brig. General", "Comodoro",
   "Maj. General", "Contra-Almirante", "Ten. General"];
 const PELOTAUN = ["1º Pelotaun", "2º Pelotaun", "3º Pelotaun"];
 const TIPU = ["Lia Mate", "Kazamento", "Dezastre", "Seluk"];
+const COMP = ["QG", "CFT", "CFN", "FAG", "CAL", "Seluk"];
 const K_DADUS = 'kontrib_ffdtl_rejistu_v1';
 const K_CFG = 'kontrib_ffdtl_cfg_v1';
 
@@ -52,21 +53,23 @@ function hatudu(v) {
 document.querySelectorAll('.bottom button').forEach(b => b.addEventListener('click', () => hatudu(b.dataset.v)));
 
 // ------------------------------------------------------------ Filtru
-const F = { tipu: '', ba_se: '', pelotaun: '', postu: '', hosi: '', too: '' };
+const F = { tipu: '', ba_se: '', pelotaun: '', postu: '', comp: '', hosi: '', too: '' };
 function filtra(lista) {
   return lista.filter(r =>
     (!F.tipu || r.tipu === F.tipu) && (!F.ba_se || r.ba_se === F.ba_se) &&
     (!F.pelotaun || r.pelotaun === F.pelotaun) && (!F.postu || r.postu === F.postu) &&
+    (!F.comp || (F.comp === 'La iha' ? !r.comp : r.comp === F.comp)) &&
     (!F.hosi || (r.data && r.data >= F.hosi)) && (!F.too || (r.data && r.data <= F.too)));
 }
 function filtruTxt() {
   const p = [];
   if (F.tipu) p.push('Tipu: ' + F.tipu); if (F.ba_se) p.push('Ba se: ' + F.ba_se);
   if (F.pelotaun) p.push('Pelotaun: ' + F.pelotaun); if (F.postu) p.push('Postu: ' + F.postu);
+  if (F.comp) p.push('Comp/Unidade: ' + F.comp);
   if (F.hosi) p.push('Hosi: ' + dataBR(F.hosi)); if (F.too) p.push('Too: ' + dataBR(F.too));
   return p.length ? p.join(' | ') : 'Dadus hotu (la iha filtru)';
 }
-[['fTipu', 'tipu'], ['fBaSe', 'ba_se'], ['fPel', 'pelotaun'], ['fPostu', 'postu'], ['fHosi', 'hosi'], ['fToo', 'too']]
+[['fTipu', 'tipu'], ['fBaSe', 'ba_se'], ['fPel', 'pelotaun'], ['fPostu', 'postu'], ['fComp', 'comp'], ['fHosi', 'hosi'], ['fToo', 'too']]
   .forEach(([id, k]) => $(id).addEventListener('change', e => { F[k] = e.target.value; render(); }));
 $('fLimpa').addEventListener('click', () => { Object.keys(F).forEach(k => F[k] = ''); enxeFiltru(); render(); });
 
@@ -75,23 +78,25 @@ const naranLista = () => [...new Set(DB.map(r => r.naran).filter(Boolean))].sort
 function enxeFiltru() {
   opsaun($('fTipu'), TIPU, 'Hotu'); opsaun($('fBaSe'), baSeLista(), 'Hotu');
   opsaun($('fPel'), PELOTAUN, 'Hotu'); opsaun($('fPostu'), POSTU, 'Hotu');
+  opsaun($('fComp'), DB.some(r => !r.comp) ? [...COMP, 'La iha'] : COMP, 'Hotu');
   $('fTipu').value = F.tipu; $('fBaSe').value = F.ba_se; $('fPel').value = F.pelotaun;
-  $('fPostu').value = F.postu; $('fHosi').value = F.hosi; $('fToo').value = F.too;
+  $('fPostu').value = F.postu; $('fComp').value = F.comp; $('fHosi').value = F.hosi; $('fToo').value = F.too;
 }
 
 // ------------------------------------------------------------ Estatístika
 function estatistika(regs) {
-  const est = { total: 0, n: regs.length, tipu: {}, pel: {}, postu: {}, baSe: {}, ema: {} };
+  const est = { total: 0, n: regs.length, tipu: {}, pel: {}, postu: {}, comp: {}, baSe: {}, ema: {} };
   TIPU.forEach(t => est.tipu[t] = { total: 0, n: 0 });
   PELOTAUN.forEach(p => est.pel[p] = { total: 0, n: 0 });
+  COMP.forEach(c => est.comp[c] = { total: 0, n: 0 });
   for (const r of regs) {
     const v = Number(r.kuantidade) || 0;
     est.total += v;
     const add = (obj, k) => { obj[k] = obj[k] || { total: 0, n: 0 }; obj[k].total += v; obj[k].n++; };
     add(est.tipu, r.tipu || 'Seluk'); add(est.pel, r.pelotaun || 'La iha');
-    add(est.postu, r.postu || 'La iha'); add(est.baSe, r.ba_se || '-');
+    add(est.postu, r.postu || 'La iha'); add(est.baSe, r.ba_se || '-'); add(est.comp, r.comp || 'La iha');
     const k = chave(r.naran);
-    if (!est.ema[k]) est.ema[k] = { naran: limpa(r.naran), postu: r.postu || '', pelotaun: r.pelotaun || '', total: 0, n: 0, tipu: Object.fromEntries(TIPU.map(t => [t, 0])) };
+    if (!est.ema[k]) est.ema[k] = { naran: limpa(r.naran), postu: r.postu || '', pelotaun: r.pelotaun || '', comp: r.comp || '', total: 0, n: 0, tipu: Object.fromEntries(TIPU.map(t => [t, 0])) };
     const e = est.ema[k]; e.total += v; e.n++; e.tipu[r.tipu] = (e.tipu[r.tipu] || 0) + v;
   }
   est.listaEma = Object.values(est.ema).sort((a, b) => b.total - a.total || a.naran.localeCompare(b.naran));
@@ -123,6 +128,7 @@ function renderDash() {
   $('kBaSe').textContent = est.listaBaSe.length;
   $('dTipu').innerHTML = barras(TIPU.map(t => ({ label: t, ...est.tipu[t] })), est.total);
   $('dBaSe').innerHTML = barras(est.listaBaSe.map(b => ({ label: b.ba_se, ...b })), est.total);
+  $('dComp').innerHTML = barras(Object.entries(est.comp).filter(([k, v]) => COMP.includes(k) || v.n).map(([k, v]) => ({ label: k, ...v })), est.total);
   $('dPel').innerHTML = barras(Object.entries(est.pel).map(([k, v]) => ({ label: k, ...v })), est.total);
   $('dTop').innerHTML = barras(est.listaEma.slice(0, 10).map(e => ({ label: `${e.rank}. ${e.postu} ${e.naran}`, ...e })), est.total);
   $('dPostu').innerHTML = barras(est.listaPostu.filter(p => p.total > 0).map(p => ({ label: p.postu, ...p })), est.total);
@@ -130,7 +136,7 @@ function renderDash() {
   const q = chave($('emaBuka').value);
   const lst = est.listaEma.filter(e => !q || e.naran.toLowerCase().includes(q));
   $('dEma').innerHTML = lst.length ? `<table><thead><tr><th>#</th><th>Naran</th><th class="num">Rej.</th><th class="num">Total</th></tr></thead><tbody>${lst.map(e =>
-    `<tr><td>${e.rank}</td><td>${esc(e.naran)}<div class="mini">${esc(e.postu)} · ${esc(e.pelotaun)}</div></td><td class="num">${e.n}</td><td class="num"><b>${usd(e.total)}</b></td></tr>`).join('')}</tbody></table>`
+    `<tr><td>${e.rank}</td><td>${esc(e.naran)}<div class="mini">${esc(e.postu)} · ${esc(e.comp || '-')} · ${esc(e.pelotaun)}</div></td><td class="num">${e.n}</td><td class="num"><b>${usd(e.total)}</b></td></tr>`).join('')}</tbody></table>`
     : '<div class="vaziu">La iha dadus.</div>';
 }
 $('emaBuka').addEventListener('input', renderDash);
@@ -140,6 +146,7 @@ let editaId = null;
 opsaun($('iPostu'), POSTU, '— Hili Postu —');
 opsaun($('iPel'), PELOTAUN, '— Hili Pelotaun —');
 opsaun($('iTipu'), TIPU, '— Hili Tipu —');
+opsaun($('iComp'), COMP, '— Hili Comp/Unidade —');
 $('iData').value = ohin();
 
 function renderForm() {
@@ -153,13 +160,13 @@ function renderForm() {
 $('iNaran').addEventListener('change', () => {
   const k = chave($('iNaran').value);
   const r = [...DB].reverse().find(x => chave(x.naran) === k);
-  if (r) { if (r.postu) $('iPostu').value = r.postu; if (r.pelotaun) $('iPel').value = r.pelotaun; }
+  if (r) { if (r.postu) $('iPostu').value = r.postu; if (r.pelotaun) $('iPel').value = r.pelotaun; if (r.comp) $('iComp').value = r.comp; }
 });
 
 $('form').addEventListener('submit', e => {
   e.preventDefault();
   const d = {
-    data: $('iData').value, naran: limpa($('iNaran').value), postu: $('iPostu').value, pelotaun: $('iPel').value,
+    data: $('iData').value, naran: limpa($('iNaran').value), postu: $('iPostu').value, pelotaun: $('iPel').value, comp: $('iComp').value,
     tipu: $('iTipu').value, ba_se: limpa($('iBaSe').value), kuantidade: Math.round(parseFloat(String($('iKuant').value).replace(',', '.')) * 100) / 100,
     obs: $('iObs').value.trim()
   };
@@ -168,6 +175,7 @@ $('form').addEventListener('submit', e => {
   if (!d.naran) erru.push('Prense Naran Kompletu.');
   if (!POSTU.includes(d.postu)) erru.push('Hili Postu.');
   if (!PELOTAUN.includes(d.pelotaun)) erru.push('Hili Pelotaun.');
+  if (!COMP.includes(d.comp)) erru.push('Hili Comp/Unidade.');
   if (!TIPU.includes(d.tipu)) erru.push('Hili Tipu Kontribuisaun.');
   if (!d.ba_se) erru.push("Prense 'Ba se?'.");
   if (!(d.kuantidade > 0)) erru.push('Kuantidade tenke boot liu $0.');
@@ -193,7 +201,7 @@ function edita(id) {
   hatudu('form');
   $('formTit').textContent = 'Edita Rejistu';
   $('iData').value = r.data || ''; $('iNaran').value = r.naran; $('iPostu').value = r.postu || '';
-  $('iPel').value = r.pelotaun || ''; $('iTipu').value = r.tipu || ''; $('iBaSe').value = r.ba_se;
+  $('iPel').value = r.pelotaun || ''; $('iComp').value = r.comp || ''; $('iTipu').value = r.tipu || ''; $('iBaSe').value = r.ba_se;
   $('iKuant').value = r.kuantidade; $('iObs').value = r.obs || '';
   $('btnKansela').hidden = false;
 }
@@ -212,7 +220,7 @@ function hamoos(id) {
 let limiteLista = 50;
 function itemHTML(r) {
   return `<div class="item"><div class="inf"><div class="nm">${esc(r.postu)} ${esc(r.naran)}</div>
-    <div class="det"><span class="tag">${esc(r.tipu)}</span> ba <b>${esc(r.ba_se)}</b> · ${esc(r.pelotaun || '-')}</div>
+    <div class="det"><span class="tag">${esc(r.tipu)}</span> ba <b>${esc(r.ba_se)}</b> · ${esc(r.comp || 'Comp: -')} · ${esc(r.pelotaun || '-')}</div>
     <div class="det">${dataBR(r.data) || 'la iha data'}${r.operador ? ' · rejista: ' + esc(r.operador) : ''}${r.obs ? ' · ' + esc(r.obs) : ''}</div>
     <div class="ak"><button class="btn btn-s" data-ed="${esc(r.id)}">Edita</button><button class="btn btn-x" data-del="${esc(r.id)}">Hamoos</button></div></div>
     <div class="val">${usd(r.kuantidade)}</div></div>`;
@@ -263,9 +271,9 @@ function folha(aoa, larg, usdCols = [], headerRow = 0) {
 }
 const kab = tit => [['FALINTIL-FDTL · QUARTEL GENERAL, FATUHADA, DILI'], [tit], ['Filtru: ' + filtruTxt()], ['Jera iha: ' + agoraTxt()], []];
 function linhaDetalhu(r, i) {
-  return [i + 1, r.data ? new Date(r.data + 'T00:00:00') : '', r.naran, r.postu, r.pelotaun, r.tipu, r.ba_se, Number(r.kuantidade) || 0, r.obs || '', r.operador || '', r.id];
+  return [i + 1, r.data ? new Date(r.data + 'T00:00:00') : '', r.naran, r.postu, r.pelotaun, r.comp || '', r.tipu, r.ba_se, Number(r.kuantidade) || 0, r.obs || '', r.operador || '', r.id];
 }
-const HEAD_DET = ['Nu', 'Data', 'Naran Kompletu', 'Postu', 'Pelotaun', 'Tipu', 'Ba se?', 'Kuantidade (USD)', 'Obs', 'Operador', 'ID'];
+const HEAD_DET = ['Nu', 'Data', 'Naran Kompletu', 'Postu', 'Pelotaun', 'Comp/Unidade', 'Tipu', 'Ba se?', 'Kuantidade (USD)', 'Obs', 'Operador', 'ID'];
 
 function geraExcel(soDetalhu) {
   const regs = soDetalhu ? [...DB] : filtra(DB);
@@ -282,6 +290,7 @@ function geraExcel(soDetalhu) {
       s.push(['TOTAL', est.n, est.total, 1], []);
     };
     blok('TUIR TIPU', 'Tipu', TIPU.map(t => ({ label: t, ...est.tipu[t] })));
+    blok('TUIR COMP/UNIDADE', 'Comp/Unidade', Object.entries(est.comp).filter(([k, v]) => COMP.includes(k) || v.n).map(([k, v]) => ({ label: k, ...v })));
     blok('TUIR PELOTAUN', 'Pelotaun', Object.entries(est.pel).map(([k, v]) => ({ label: k, ...v })));
     blok('TUIR POSTU', 'Postu', est.listaPostu.map(p => ({ label: p.postu, ...p })));
     blok('TUIR BENEFISIÁRIU (BA SE?)', 'Ba se?', est.listaBaSe.map(b => ({ label: b.ba_se, ...b })));
@@ -296,27 +305,27 @@ function geraExcel(soDetalhu) {
     XLSX.utils.book_append_sheet(wb, ws, 'Sumariu');
 
     const e = kab('TOTAL KONTRIBUISAUN KADA MEMBRU');
-    e.push(['Nu', 'Postu', 'Naran Kompletu', 'Pelotaun', ...TIPU, 'TOTAL (USD)', 'Nu. Rejistu']);
-    est.listaEma.forEach(x => e.push([x.rank, x.postu, x.naran, x.pelotaun, ...TIPU.map(t => x.tipu[t] || 0), x.total, x.n]));
-    e.push(['', '', 'TOTAL JERÁL', '', ...TIPU.map(t => est.tipu[t].total), est.total, est.n]);
-    XLSX.utils.book_append_sheet(wb, folha(e, [6, 14, 40, 13, 12, 12, 12, 12, 15, 11], [4, 5, 6, 7, 8], 5), 'Total Kada Ema');
+    e.push(['Nu', 'Postu', 'Naran Kompletu', 'Pelotaun', 'Comp/Unidade', ...TIPU, 'TOTAL (USD)', 'Nu. Rejistu']);
+    est.listaEma.forEach(x => e.push([x.rank, x.postu, x.naran, x.pelotaun, x.comp, ...TIPU.map(t => x.tipu[t] || 0), x.total, x.n]));
+    e.push(['', '', 'TOTAL JERÁL', '', '', ...TIPU.map(t => est.tipu[t].total), est.total, est.n]);
+    XLSX.utils.book_append_sheet(wb, folha(e, [6, 14, 40, 13, 13, 12, 12, 12, 12, 15, 11], [5, 6, 7, 8, 9], 5), 'Total Kada Ema');
 
     const benef = est.listaBaSe.map(b => b.ba_se);
     const m = kab('MATRIZ KONTRIBUISAUN: MEMBRU x BENEFISIÁRIU');
-    m.push(['Nu', 'Postu', 'Naran Kompletu', 'Pelotaun', ...benef, 'Total Kada Ema']);
+    m.push(['Nu', 'Postu', 'Naran Kompletu', 'Pelotaun', 'Comp/Unidade', ...benef, 'Total Kada Ema']);
     const mat = {};
     regs.forEach(r => { const k = chave(r.naran); mat[k] = mat[k] || {}; mat[k][r.ba_se] = (mat[k][r.ba_se] || 0) + (Number(r.kuantidade) || 0); });
     [...est.listaEma].sort((a, b) => a.naran.localeCompare(b.naran)).forEach((x, i) =>
-      m.push([i + 1, x.postu, x.naran, x.pelotaun, ...benef.map(b => mat[chave(x.naran)][b] || 0), x.total]));
-    m.push(['', '', 'SUB-TOTAL', '', ...est.listaBaSe.map(b => b.total), est.total]);
-    XLSX.utils.book_append_sheet(wb, folha(m, [6, 12, 40, 13, ...benef.map(() => 14), 16], [...benef.map((_, i) => 4 + i), 4 + benef.length], 5), 'Matriz Ema x Ba se');
+      m.push([i + 1, x.postu, x.naran, x.pelotaun, x.comp, ...benef.map(b => mat[chave(x.naran)][b] || 0), x.total]));
+    m.push(['', '', 'SUB-TOTAL', '', '', ...est.listaBaSe.map(b => b.total), est.total]);
+    XLSX.utils.book_append_sheet(wb, folha(m, [6, 12, 40, 13, 13, ...benef.map(() => 14), 16], [...benef.map((_, i) => 5 + i), 5 + benef.length], 5), 'Matriz Ema x Ba se');
   }
   const d = soDetalhu ? [] : kab('DETALHU REJISTU KONTRIBUISAUN');
   const h = d.length;
   d.push(HEAD_DET);
   regs.forEach((r, i) => d.push(linhaDetalhu(r, i)));
-  if (!soDetalhu) d.push(['', '', '', '', '', '', 'TOTAL', est.total]);
-  const wsD = folha(d, [6, 12, 38, 14, 13, 12, 22, 15, 30, 18, 12], [7], h);
+  if (!soDetalhu) d.push(['', '', '', '', '', '', '', 'TOTAL', est.total]);
+  const wsD = folha(d, [6, 12, 38, 14, 13, 13, 12, 22, 15, 30, 18, 12], [8], h);
   const rgD = XLSX.utils.decode_range(wsD['!ref']);
   for (let R = h + 1; R <= rgD.e.r; R++) { const c = wsD[XLSX.utils.encode_cell({ r: R, c: 1 })]; if (c && c.t === 'd' || (c && c.t === 'n')) c.z = 'dd/mm/yyyy'; }
   XLSX.utils.book_append_sheet(wb, wsD, soDetalhu ? 'Rejistu' : 'Detalhu Rejistu');
@@ -359,15 +368,16 @@ tfoot td{font-weight:700;background:var(--k);border-top:2px solid var(--v)}
 <h2>1. Sumáriu Jerál</h2><div class="kp"><div class="p"><span>Total Jerál</span><b>${usd(est.total)}</b></div>
 <div><span>Total Rejistu</span><b>${est.n}</b></div><div><span>Membru</span><b>${est.nEma}</b></div><div><span>Média / Membru</span><b>${usd(est.media)}</b></div></div>
 <div class="d"><div><h2>2. Tuir Tipu</h2>${tGrupu('Tipu', TIPU.map(t => ({ label: t, ...est.tipu[t] })))}</div>
-<div><h2>3. Tuir Pelotaun</h2>${tGrupu('Pelotaun', Object.entries(est.pel).map(([k, v]) => ({ label: k, ...v })))}</div></div>
-<div class="d"><div><h2>4. Tuir Benefisiáriu (Ba se?)</h2>${tGrupu('Ba se?', est.listaBaSe.map(b => ({ label: b.ba_se, ...b })))}</div>
+<div><h2>3. Tuir Comp/Unidade</h2>${tGrupu('Comp/Unidade', Object.entries(est.comp).filter(([k, v]) => COMP.includes(k) || v.n).map(([k, v]) => ({ label: k, ...v })))}</div></div>
+<div class="d"><div><h2>4. Tuir Pelotaun</h2>${tGrupu('Pelotaun', Object.entries(est.pel).map(([k, v]) => ({ label: k, ...v })))}</div>
 <div><h2>5. Tuir Postu</h2>${tGrupu('Postu', est.listaPostu.map(p => ({ label: p.postu, ...p })))}</div></div>
-<h2>6. Total Kontribuisaun Kada Membru</h2><div class="tw"><table><thead><tr><th>#</th><th>Postu</th><th>Naran Kompletu</th><th>Pelotaun</th>${TIPU.map(t => `<th class="num">${t}</th>`).join('')}<th class="num">Total</th><th class="num">Rej.</th></tr></thead><tbody>
-${est.listaEma.map(e => `<tr><td>${e.rank}</td><td>${esc(e.postu)}</td><td>${esc(e.naran)}</td><td>${esc(e.pelotaun)}</td>${TIPU.map(t => `<td class="num">${e.tipu[t] ? usd(e.tipu[t]) : '—'}</td>`).join('')}<td class="num"><b>${usd(e.total)}</b></td><td class="num">${e.n}</td></tr>`).join('')}
-</tbody><tfoot><tr><td colspan="4">TOTAL JERÁL</td>${TIPU.map(t => `<td class="num">${usd(est.tipu[t].total)}</td>`).join('')}<td class="num">${usd(est.total)}</td><td class="num">${est.n}</td></tr></tfoot></table></div>
-<h2>7. Detalhu Rejistu</h2><div class="tw"><table><thead><tr><th>#</th><th>Data</th><th>Postu</th><th>Naran</th><th>Pel.</th><th>Tipu</th><th>Ba se?</th><th class="num">USD</th><th>Obs</th></tr></thead><tbody>
-${regs.map((r, i) => `<tr><td>${i + 1}</td><td>${dataBR(r.data)}</td><td>${esc(r.postu)}</td><td>${esc(r.naran)}</td><td>${esc((r.pelotaun || '').slice(0, 2))}</td><td>${esc(r.tipu)}</td><td>${esc(r.ba_se)}</td><td class="num">${usd(r.kuantidade)}</td><td>${esc(r.obs)}</td></tr>`).join('')}
-</tbody><tfoot><tr><td colspan="7">TOTAL</td><td class="num">${usd(est.total)}</td><td></td></tr></tfoot></table></div>
+<h2>6. Tuir Benefisiáriu (Ba se?)</h2>${tGrupu('Ba se?', est.listaBaSe.map(b => ({ label: b.ba_se, ...b })))}
+<h2>7. Total Kontribuisaun Kada Membru</h2><div class="tw"><table><thead><tr><th>#</th><th>Postu</th><th>Naran Kompletu</th><th>Pelotaun</th><th>Comp/Unid.</th>${TIPU.map(t => `<th class="num">${t}</th>`).join('')}<th class="num">Total</th><th class="num">Rej.</th></tr></thead><tbody>
+${est.listaEma.map(e => `<tr><td>${e.rank}</td><td>${esc(e.postu)}</td><td>${esc(e.naran)}</td><td>${esc(e.pelotaun)}</td><td>${esc(e.comp)}</td>${TIPU.map(t => `<td class="num">${e.tipu[t] ? usd(e.tipu[t]) : '—'}</td>`).join('')}<td class="num"><b>${usd(e.total)}</b></td><td class="num">${e.n}</td></tr>`).join('')}
+</tbody><tfoot><tr><td colspan="5">TOTAL JERÁL</td>${TIPU.map(t => `<td class="num">${usd(est.tipu[t].total)}</td>`).join('')}<td class="num">${usd(est.total)}</td><td class="num">${est.n}</td></tr></tfoot></table></div>
+<h2>8. Detalhu Rejistu</h2><div class="tw"><table><thead><tr><th>#</th><th>Data</th><th>Postu</th><th>Naran</th><th>Pel.</th><th>Comp/Unid.</th><th>Tipu</th><th>Ba se?</th><th class="num">USD</th><th>Obs</th></tr></thead><tbody>
+${regs.map((r, i) => `<tr><td>${i + 1}</td><td>${dataBR(r.data)}</td><td>${esc(r.postu)}</td><td>${esc(r.naran)}</td><td>${esc((r.pelotaun || '').slice(0, 2))}</td><td>${esc(r.comp)}</td><td>${esc(r.tipu)}</td><td>${esc(r.ba_se)}</td><td class="num">${usd(r.kuantidade)}</td><td>${esc(r.obs)}</td></tr>`).join('')}
+</tbody><tfoot><tr><td colspan="8">TOTAL</td><td class="num">${usd(est.total)}</td><td></td></tr></tfoot></table></div>
 <div class="as"><div>Prepara husi,<div>Naran / Postu</div></div><div>Aprova husi,<div>Komandante</div></div></div>
 </div></body></html>`;
 }
@@ -407,8 +417,10 @@ function normaliza(o) {
   else if (typeof data === 'string' && /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(data.trim())) { const [d, m, y] = data.trim().split('/'); data = `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`; }
   else data = typeof data === 'string' && /^\d{4}-\d{2}-\d{2}/.test(data) ? data.slice(0, 10) : '';
   const k = parseFloat(String(o.kuantidade ?? '').replace(/[$,\s]/g, ''));
+  const cRaw = limpa(o.comp).toUpperCase();
+  const comp = !cRaw || cRaw === 'N/A' ? '' : (COMP.find(c => c.toUpperCase() === cRaw) || 'Seluk');
   return {
-    id: limpa(o.id) || '', data, naran: limpa(o.naran), postu: limpa(o.postu), pelotaun: pel,
+    id: limpa(o.id) || '', data, naran: limpa(o.naran), postu: limpa(o.postu), pelotaun: pel, comp,
     tipu: TIPU.includes(limpa(o.tipu)) ? limpa(o.tipu) : 'Seluk', ba_se: limpa(o.ba_se),
     kuantidade: isNaN(k) ? 0 : Math.round(k * 100) / 100, obs: limpa(o.obs), operador: limpa(o.operador),
     dispozitivu: o.dispozitivu || '', kria_iha: o.kria_iha || new Date().toISOString(), atualiza_iha: o.atualiza_iha || ''
@@ -423,7 +435,7 @@ function leExcel(buf) {
     if (hi < 0) continue;
     const H = rows[hi].map(c => String(c).toLowerCase());
     const col = re => H.findIndex(h => re.test(h));
-    const ix = { data: col(/^data/), naran: col(/naran/), postu: col(/postu/), pelotaun: col(/pelotaun|pel\./), tipu: col(/tipu/), ba_se: col(/ba se/), kuantidade: col(/kuantidade/), obs: col(/^(\d+\.\s*)?obs/), operador: col(/operador/), id: col(/^id$/) };
+    const ix = { data: col(/^data/), naran: col(/naran/), postu: col(/postu/), pelotaun: col(/pelotaun|pel\./), comp: col(/comp|unid/), tipu: col(/tipu/), ba_se: col(/ba se/), kuantidade: col(/kuantidade/), obs: col(/^(\d+\.\s*)?obs/), operador: col(/operador/), id: col(/^id$/) };
     for (const r of rows.slice(hi + 1)) {
       const o = {}; for (const [k, i] of Object.entries(ix)) o[k] = i >= 0 ? r[i] : '';
       if (!limpa(o.naran) || /^total/i.test(limpa(o.naran))) continue;
@@ -442,19 +454,23 @@ function importa(lista, modu, origem) {
     return { aumenta: DB.length, repete: 0, invalidu, origem };
   }
   const ids = new Set(DB.map(r => r.id)), imp = new Set(DB.map(impressaun));
-  let aumenta = 0, repete = 0;
+  const porId = new Map(DB.map(r => [r.id, r]));
+  let aumenta = 0, repete = 0, kompleta = 0;
   for (const r of regs) {
+    const iha = r.id && porId.get(r.id);
+    // rejistu ne'ebé iha ona maibé seidauk iha Comp/Unidade -> kompleta husi ficheiru
+    if (iha && !iha.comp && r.comp) { iha.comp = r.comp; kompleta++; }
     if ((r.id && ids.has(r.id)) || imp.has(impressaun(r))) { repete++; continue; }
     r.id = r.id || uid(); DB.push(r); ids.add(r.id); imp.add(impressaun(r)); aumenta++;
   }
   grava();
-  return { aumenta, repete, invalidu, origem };
+  return { aumenta, repete, invalidu, origem, kompleta };
 }
 function hatuduRez(z) {
   if (!z) return;
   $('iRez').hidden = false;
   $('iRez').innerHTML = `✓ Importa husi <b>${esc(z.origem)}</b>: <b>${z.aumenta}</b> rejistu foun` +
-    (z.repete ? `, ${z.repete} ignora (iha ona)` : '') + (z.invalidu ? `, ${z.invalidu} la válidu` : '') + `.<br>Total agora: ${DB.length} rejistu.`;
+    (z.repete ? `, ${z.repete} ignora (iha ona)` : '') + (z.kompleta ? `, ${z.kompleta} kompleta ho Comp/Unidade` : '') + (z.invalidu ? `, ${z.invalidu} la válidu` : '') + `.<br>Total agora: ${DB.length} rejistu.`;
   renderCfg(); toast(`Importa: ${z.aumenta} rejistu foun`);
 }
 $('iBtn').onclick = () => $('iFile').click();

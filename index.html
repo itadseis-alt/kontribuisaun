@@ -31,6 +31,7 @@
         <label>Ba se?<select id="fBaSe"></select></label>
         <label>Pelotaun<select id="fPel"></select></label>
         <label>Postu<select id="fPostu"></select></label>
+        <label>Comp/Unidade<select id="fComp"></select></label>
         <label>Data hosi<input type="date" id="fHosi"></label>
         <label>Data too<input type="date" id="fToo"></label>
       </div>
@@ -46,6 +47,7 @@
 
     <div class="card"><h2>Tuir Tipu</h2><div id="dTipu"></div></div>
     <div class="card"><h2>Tuir Benefisiáriu (Ba se?)</h2><div id="dBaSe"></div></div>
+    <div class="card"><h2>Tuir Comp/Unidade</h2><div id="dComp"></div></div>
     <div class="card"><h2>Tuir Pelotaun</h2><div id="dPel"></div></div>
     <div class="card"><h2>Top 10 Membru</h2><div id="dTop"></div></div>
     <div class="card"><h2>Tuir Postu</h2><div id="dPostu"></div></div>
@@ -68,17 +70,18 @@
         <label>2. Postu <span class="req">*</span><select id="iPostu" required></select></label>
         <label>3. Pelotaun <span class="req">*</span><select id="iPel" required></select></label>
       </div>
-      <label>4. Tipu Kontribuisaun <span class="req">*</span><select id="iTipu" required></select></label>
-      <label>5. Ba se? <span class="req">*</span>
+      <label>4. Comp/Unidade <span class="req">*</span><select id="iComp" required></select></label>
+      <label>5. Tipu Kontribuisaun <span class="req">*</span><select id="iTipu" required></select></label>
+      <label>6. Ba se? <span class="req">*</span>
         <input id="iBaSe" list="lBaSe" required placeholder="Ex.: Alf. Lima" autocapitalize="words"></label>
       <datalist id="lBaSe"></datalist>
-      <label>6. Kuantidade (USD) <span class="req">*</span>
+      <label>7. Kuantidade (USD) <span class="req">*</span>
         <div class="usd"><span>$</span><input id="iKuant" type="number" inputmode="decimal" step="0.01" min="0.01" required placeholder="0.00"></div></label>
-      <label>7. Obs<textarea id="iObs" rows="2" placeholder="Opsionál"></textarea></label>
+      <label>8. Obs<textarea id="iObs" rows="2" placeholder="Opsionál"></textarea></label>
       <div id="formErru" class="erru" hidden></div>
-      <button class="btn btn-p w100 big" type="submit">8. Save</button>
+      <button class="btn btn-p w100 big" type="submit">9. Save</button>
       <button class="btn btn-s w100" type="button" id="btnKansela" hidden>Kansela edisaun</button>
-      <p class="mini cen">Depois Save, Data, Tipu, Ba se, Postu no Pelotaun mantein — fasil atu rejista ema seluk.</p>
+      <p class="mini cen">Depois Save, Data, Comp/Unidade, Tipu, Ba se, Postu no Pelotaun mantein — fasil atu rejista ema seluk.</p>
     </form>
     <div class="card"><h2>Rejistu ikus</h2><div id="formIkus"></div></div>
   </section>

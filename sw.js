@@ -1,5 +1,5 @@
 // Service worker: app funsiona offline depois loke dala ida.
-const VERSAUN = 'kontribuisaun-v1.0.0';
+const VERSAUN = 'kontribuisaun-v1.1.0';
 const ASSETS = [
   './', './index.html', './app.js', './style.css', './manifest.webmanifest',
   './lib/xlsx.full.min.js', './data/cefo24.json',
